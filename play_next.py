@@ -1,3 +1,15 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+# "requests",
+# ]
+# ///
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Self
+import json
+
 import requests
 
 
@@ -6,9 +18,31 @@ USERNAME = ""
 PASSWORD = ""
 
 
-def _sort_episodes(p) -> int:
-    """Sort episodes by publish date."""
-    return p["publishedAt"]
+@dataclass
+class Episode:
+    id: str
+    library_id: str
+
+    podcast: str
+    name: str
+    publish_ts: int
+
+    @classmethod
+    def from_json(cls, json) -> Self:
+        return cls(
+            id=json["id"],
+            library_id=json["libraryItemId"],
+            podcast=json["audioFile"]["metaTags"]["tagAlbum"],
+            name=json["title"],
+            publish_ts=json["publishedAt"],
+        )
+
+    @property
+    def date(self) -> str:
+        return datetime.fromtimestamp(self.publish_ts / 1000).date().isoformat()
+
+    def __str__(self) -> str:
+        return f"  {self.date}\n{self.podcast}\t{self.name}"
 
 
 class Client:
@@ -25,7 +59,7 @@ class Client:
 
         self.library = resp["userDefaultLibraryId"]
 
-    def items(self):
+    def items(self) -> list[Episode]:
         resp = self.session.get(ABS_URL + f"api/libraries/{self.library}/items").json()
         podcast_ids: list[str] = [podcast["id"] for podcast in resp["results"]]
 
@@ -49,26 +83,34 @@ class Client:
                     },
                 ).json()
                 if resp["userMediaProgress"] is None:
-                    items.append(episode)
+                    items.append(Episode.from_json(episode))
                     continue
                 if resp["userMediaProgress"]["isFinished"] is True:
                     continue
 
-                items.append(episode)
+                items.append(Episode.from_json(episode))
 
         return items
 
-    def update_playlist(self, items) -> None:
+    def update_playlist(self, episodes: list[Episode]) -> None:
         resp = self.session.get(ABS_URL + "api/playlists").json()
-        playlist_id = resp["playlists"][0]["id"]
+        playlist = resp["playlists"][0]
 
-        episodes = [
-            {"libraryItemId": item["libraryItemId"], "episodeId": item["id"]}
-            for item in items
+        items = [
+            {"libraryItemId": episode.library_id, "episodeId": episode.id}
+            for episode in episodes
         ]
-        resp = self.session.patch(
-            ABS_URL + f"api/playlists/{playlist_id}", params={"items": episodes}
+        payload = {"items": items}
+        resp = self.session.post(
+            ABS_URL + f"api/playlists/{playlist['id']}/batch/add",
+            data=json.dumps(payload),
+            headers={"Content-Type": "application/json"},
         )
+
+
+def _sort_episodes(episode: Episode) -> int:
+    """Sort episodes by publish date."""
+    return episode.publish_ts
 
 
 def main() -> None:
@@ -77,10 +119,7 @@ def main() -> None:
     items = sorted(c.items(), key=_sort_episodes)
     c.update_playlist(items[:5])
     for item in items[:5]:
-        podcast = item["audioFile"]["metaTags"]["tagAlbum"]
-        title = item["title"]
-        date = item["audioFile"]["metaTags"]["tagDate"]
-        print(f"{date}\n{podcast} - {title}")
+        print(item)
 
 
 if __name__ == "__main__":
