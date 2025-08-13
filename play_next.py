@@ -7,11 +7,13 @@
 # ///
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Self
+from typing import TYPE_CHECKING, Self
 import json
 
 import requests
 
+if TYPE_CHECKING:
+    from collections.abc import Collection
 
 ABS_URL = ""
 USERNAME = ""
@@ -43,6 +45,44 @@ class Episode:
 
     def __str__(self) -> str:
         return f"  {self.date}\n{self.podcast}\t{self.name}"
+
+
+@dataclass
+class PlaylistItem:
+    episode_id: str
+    library_id: str
+
+    @classmethod
+    def from_json(cls, json) -> Self:
+        return cls(episode_id=json["episodeId"], library_id=json["libraryItemId"])
+
+    def to_json(self) -> dict[str, str]:
+        return {"episodeId": self.episode_id, "libraryItemId": self.library_id}
+
+    def __eq__(self, other: Self) -> bool:
+        return (
+            self.episode_id == other.episode_id and self.library_id == other.library_id
+        )
+
+
+@dataclass
+class PlaylistItems:
+    items: list[PlaylistItem]
+
+    @classmethod
+    def from_json(cls, json) -> Self:
+        items = [PlaylistItem.from_json(item) for item in json["items"]]
+        return cls(items)
+
+    def to_json(self) -> dict[str, list[dict[str, str]]]:
+        return {"items": [item.to_json() for item in self.items]}
+
+    def __sub__(self, other: Self) -> Self:
+        items = list(self.items)
+        for item in other.items:
+            if item in items:
+                items.remove(item)
+        return self.__class__(items)
 
 
 class Client:
@@ -94,18 +134,43 @@ class Client:
 
     def update_playlist(self, episodes: list[Episode]) -> None:
         resp = self.session.get(ABS_URL + "api/playlists").json()
+        # TODO: Actually look for "Up Next"
         playlist = resp["playlists"][0]
 
-        items = [
-            {"libraryItemId": episode.library_id, "episodeId": episode.id}
-            for episode in episodes
-        ]
-        payload = {"items": items}
+        existing_items = PlaylistItems.from_json(playlist)
+
+        new_items = PlaylistItems(
+            items=[
+                PlaylistItem(episode_id=episode.id, library_id=episode.library_id)
+                for episode in episodes
+            ]
+        )
+        net_new = new_items - existing_items
+        net_old = existing_items - new_items
+
+        # Add new items
+        payload = net_new.to_json()
         resp = self.session.post(
             ABS_URL + f"api/playlists/{playlist['id']}/batch/add",
             data=json.dumps(payload),
             headers={"Content-Type": "application/json"},
         )
+
+        # Remove stale items
+        payload = net_old.to_json()
+        resp = self.session.post(
+            ABS_URL + f"api/playlists/{playlist['id']}/batch/remove",
+            data=json.dumps(payload),
+            headers={"Content-Type": "application/json"},
+        )
+
+        # PATCH replace
+        # payload = new_items.to_json()
+        # resp = self.session.patch(
+        #     ABS_URL + f"api/playlists/{playlist['id']}",
+        #     data=json.dumps(payload),
+        #     headers={"Content-Type": "application/json"},
+        # )
 
 
 def _sort_episodes(episode: Episode) -> int:
