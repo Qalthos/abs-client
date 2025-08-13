@@ -7,13 +7,11 @@
 # ///
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Self
+from typing import Self
 import json
 
 import requests
 
-if TYPE_CHECKING:
-    from collections.abc import Collection
 
 ABS_URL = ""
 USERNAME = ""
@@ -99,6 +97,7 @@ class Client:
 
         self.library = resp["userDefaultLibraryId"]
 
+    @property
     def items(self) -> list[Episode]:
         resp = self.session.get(ABS_URL + f"api/libraries/{self.library}/items").json()
         podcast_ids: list[str] = [podcast["id"] for podcast in resp["results"]]
@@ -130,7 +129,7 @@ class Client:
 
                 items.append(Episode.from_json(episode))
 
-        return items
+        return sorted(items, key=lambda i: i.publish_ts)
 
     def update_playlist(self, episodes: list[Episode]) -> None:
         resp = self.session.get(ABS_URL + "api/playlists").json()
@@ -173,15 +172,10 @@ class Client:
         # )
 
 
-def _sort_episodes(episode: Episode) -> int:
-    """Sort episodes by publish date."""
-    return episode.publish_ts
-
-
 def main() -> None:
     c = Client()
     c.login()
-    items = sorted(c.items(), key=_sort_episodes)
+    items = c.items
     c.update_playlist(items[:5])
     for item in items[:5]:
         print(item)
