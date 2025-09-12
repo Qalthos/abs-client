@@ -175,9 +175,9 @@ class Client:
 def main() -> None:
     c = Client()
     c.login()
-    items = c.items
-    c.update_playlist(items[:5])
-    for item in items[:5]:
+    items = c.items[:10]
+    c.update_playlist(items)
+    for item in items:
         print(item)
 
 
