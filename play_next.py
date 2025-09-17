@@ -5,13 +5,16 @@
 # "requests",
 # ]
 # ///
+import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Self
-import json
 
 import requests
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
 ABS_URL = ""
@@ -159,6 +162,8 @@ class Client:
 
         # Add new items
         payload = net_new.to_json()
+        for item in net_new.items:
+            logger.info("Adding %s", item.episode_name)
         resp = self.session.post(
             ABS_URL + f"api/playlists/{playlist['id']}/batch/add",
             data=json.dumps(payload),
@@ -167,6 +172,8 @@ class Client:
 
         # Remove stale items
         payload = net_old.to_json()
+        for item in net_old.items:
+            logger.info("Removing %s", item.episode_name)
         resp = self.session.post(
             ABS_URL + f"api/playlists/{playlist['id']}/batch/remove",
             data=json.dumps(payload),
@@ -179,8 +186,6 @@ def main() -> None:
     c.login()
     items = c.items[:10]
     c.update_playlist(items)
-    for item in items:
-        print(item)
 
 
 if __name__ == "__main__":
