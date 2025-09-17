@@ -13,6 +13,7 @@ import json
 import requests
 
 
+
 ABS_URL = ""
 USERNAME = ""
 PASSWORD = ""
@@ -49,10 +50,15 @@ class Episode:
 class PlaylistItem:
     episode_id: str
     library_id: str
+    episode_name: str
 
     @classmethod
     def from_json(cls, json) -> Self:
-        return cls(episode_id=json["episodeId"], library_id=json["libraryItemId"])
+        return cls(
+            episode_id=json["episodeId"],
+            library_id=json["libraryItemId"],
+            episode_name=json["episode"]["title"],
+        )
 
     def to_json(self) -> dict[str, str]:
         return {"episodeId": self.episode_id, "libraryItemId": self.library_id}
@@ -140,7 +146,11 @@ class Client:
 
         new_items = PlaylistItems(
             items=[
-                PlaylistItem(episode_id=episode.id, library_id=episode.library_id)
+                PlaylistItem(
+                    episode_id=episode.id,
+                    library_id=episode.library_id,
+                    episode_name=episode.name,
+                )
                 for episode in episodes
             ]
         )
@@ -162,14 +172,6 @@ class Client:
             data=json.dumps(payload),
             headers={"Content-Type": "application/json"},
         )
-
-        # PATCH replace
-        # payload = new_items.to_json()
-        # resp = self.session.patch(
-        #     ABS_URL + f"api/playlists/{playlist['id']}",
-        #     data=json.dumps(payload),
-        #     headers={"Content-Type": "application/json"},
-        # )
 
 
 def main() -> None:
