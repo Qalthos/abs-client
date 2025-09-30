@@ -119,9 +119,9 @@ class Client:
             if "backlog" in resp["media"]["tags"]:
                 continue
 
-            episondes = resp["media"]["episodes"]
+            episodes = resp["media"]["episodes"]
 
-            for episode in episondes:
+            for episode in episodes:
                 resp = self.session.get(
                     ABS_URL + f"api/items/{podcast}",
                     params={
@@ -142,8 +142,19 @@ class Client:
 
     def update_playlist(self, episodes: list[Episode]) -> None:
         resp = self.session.get(ABS_URL + "api/playlists").json()
-        # TODO: Actually look for "Up Next"
-        playlist = resp["playlists"][0]
+
+        try:
+            playlist = next(p for p in resp["playlists"] if p["name"] == "Up Next")
+        except StopIteration:
+            logger.warning("Playlist not found, creating")
+            resp = self.session.post(
+                ABS_URL + "api/playlists",
+                data={
+                    "libraryId": self.library,
+                    "name": "Up Next",
+                },
+            ).json()
+            playlist = resp
 
         existing_items = PlaylistItems.from_json(playlist)
 
