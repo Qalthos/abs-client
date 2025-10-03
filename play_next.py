@@ -5,48 +5,19 @@
 # "requests",
 # ]
 # ///
+from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Self
+from typing import TYPE_CHECKING
 
-import requests
+from common import ABS_URL, Client, Episode
+
+if TYPE_CHECKING:
+    from typing import Self
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
-
-
-ABS_URL = ""
-USERNAME = ""
-PASSWORD = ""
-
-
-@dataclass
-class Episode:
-    id: str
-    library_id: str
-
-    podcast: str
-    name: str
-    publish_ts: int
-
-    @classmethod
-    def from_json(cls, json) -> Self:
-        return cls(
-            id=json["id"],
-            library_id=json["libraryItemId"],
-            podcast=json["audioFile"]["metaTags"]["tagAlbum"],
-            name=json["title"],
-            publish_ts=json["publishedAt"],
-        )
-
-    @property
-    def date(self) -> str:
-        return datetime.fromtimestamp(self.publish_ts / 1000).date().isoformat()
-
-    def __str__(self) -> str:
-        return f"  {self.date}\n{self.podcast}\t{self.name}"
 
 
 @dataclass
@@ -92,111 +63,63 @@ class PlaylistItems:
         return self.__class__(items)
 
 
-class Client:
-    library: str
+def update_playlist(client: Client, episodes: list[Episode]) -> None:
+    resp = client.session.get(ABS_URL + "api/playlists").json()
 
-    def __init__(self) -> None:
-        self.session = requests.Session()
-
-    def login(self) -> None:
-        resp = self.session.post(
-            ABS_URL + "login", {"username": USERNAME, "password": PASSWORD}
+    try:
+        playlist = next(p for p in resp["playlists"] if p["name"] == "Up Next")
+    except StopIteration:
+        logger.warning("Playlist not found, creating")
+        resp = client.session.post(
+            ABS_URL + "api/playlists",
+            data={
+                "libraryId": client.library,
+                "name": "Up Next",
+            },
         ).json()
-        self.session.headers["Authorization"] = f"Bearer {resp['user']['token']}"
+        playlist = resp
 
-        self.library = resp["userDefaultLibraryId"]
+    existing_items = PlaylistItems.from_json(playlist)
 
-    @property
-    def items(self) -> list[Episode]:
-        resp = self.session.get(ABS_URL + f"api/libraries/{self.library}/items").json()
-        podcast_ids: list[str] = [podcast["id"] for podcast in resp["results"]]
+    new_items = PlaylistItems(
+        items=[
+            PlaylistItem(
+                episode_id=episode.id,
+                library_id=episode.library_id,
+                episode_name=episode.name,
+            )
+            for episode in episodes
+        ]
+    )
+    net_new = new_items - existing_items
+    net_old = existing_items - new_items
 
-        items = []
-        for podcast in podcast_ids:
-            resp = self.session.get(ABS_URL + f"api/items/{podcast}").json()
+    # Add new items
+    payload = net_new.to_json()
+    for item in net_new.items:
+        logger.info("Adding %s", item.episode_name)
+    resp = client.session.post(
+        ABS_URL + f"api/playlists/{playlist['id']}/batch/add",
+        data=json.dumps(payload),
+        headers={"Content-Type": "application/json"},
+    )
 
-            # Skip backlogged podcasts.
-            if "backlog" in resp["media"]["tags"]:
-                continue
-
-            episodes = resp["media"]["episodes"]
-
-            for episode in episodes:
-                resp = self.session.get(
-                    ABS_URL + f"api/items/{podcast}",
-                    params={
-                        "expanded": 1,
-                        "include": "progress",
-                        "episode": episode["id"],
-                    },
-                ).json()
-                if resp["userMediaProgress"] is None:
-                    items.append(Episode.from_json(episode))
-                    continue
-                if resp["userMediaProgress"]["isFinished"] is True:
-                    continue
-
-                items.append(Episode.from_json(episode))
-
-        return sorted(items, key=lambda i: i.publish_ts)
-
-    def update_playlist(self, episodes: list[Episode]) -> None:
-        resp = self.session.get(ABS_URL + "api/playlists").json()
-
-        try:
-            playlist = next(p for p in resp["playlists"] if p["name"] == "Up Next")
-        except StopIteration:
-            logger.warning("Playlist not found, creating")
-            resp = self.session.post(
-                ABS_URL + "api/playlists",
-                data={
-                    "libraryId": self.library,
-                    "name": "Up Next",
-                },
-            ).json()
-            playlist = resp
-
-        existing_items = PlaylistItems.from_json(playlist)
-
-        new_items = PlaylistItems(
-            items=[
-                PlaylistItem(
-                    episode_id=episode.id,
-                    library_id=episode.library_id,
-                    episode_name=episode.name,
-                )
-                for episode in episodes
-            ]
-        )
-        net_new = new_items - existing_items
-        net_old = existing_items - new_items
-
-        # Add new items
-        payload = net_new.to_json()
-        for item in net_new.items:
-            logger.info("Adding %s", item.episode_name)
-        resp = self.session.post(
-            ABS_URL + f"api/playlists/{playlist['id']}/batch/add",
-            data=json.dumps(payload),
-            headers={"Content-Type": "application/json"},
-        )
-
-        # Remove stale items
-        payload = net_old.to_json()
-        for item in net_old.items:
-            logger.info("Removing %s", item.episode_name)
-        resp = self.session.post(
-            ABS_URL + f"api/playlists/{playlist['id']}/batch/remove",
-            data=json.dumps(payload),
-            headers={"Content-Type": "application/json"},
-        )
+    # Remove stale items
+    payload = net_old.to_json()
+    for item in net_old.items:
+        logger.info("Removing %s", item.episode_name)
+    resp = client.session.post(
+        ABS_URL + f"api/playlists/{playlist['id']}/batch/remove",
+        data=json.dumps(payload),
+        headers={"Content-Type": "application/json"},
+    )
 
 
 def main() -> None:
     c = Client()
     c.login()
     items = c.items[:10]
-    c.update_playlist(items)
+    update_playlist(c, items)
 
 
 if __name__ == "__main__":
