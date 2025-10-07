@@ -5,14 +5,12 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import requests
+import tomllib
+from pathlib import Path
 
 
 if TYPE_CHECKING:
     from typing import Self
-
-ABS_URL = ""
-USERNAME = ""
-PASSWORD = ""
 
 
 @dataclass
@@ -50,22 +48,33 @@ class Client:
     def __init__(self) -> None:
         self.session = requests.Session()
 
+        with Path("config.toml").open("rb") as config:
+            self._config = tomllib.load(config)
+
     def login(self) -> None:
         resp = self.session.post(
-            ABS_URL + "login", {"username": USERNAME, "password": PASSWORD}
+            f"{self.url}login",
+            {
+                "username": self._config["audiobookshelf"]["user"],
+                "password": self._config["audiobookshelf"]["password"],
+            },
         ).json()
         self.session.headers["Authorization"] = f"Bearer {resp['user']['token']}"
 
         self.library = resp["userDefaultLibraryId"]
 
     @property
+    def url(self) -> str:
+        return self._config["audiobookshelf"]["url"]
+
+    @property
     def items(self) -> list[Episode]:
-        resp = self.session.get(ABS_URL + f"api/libraries/{self.library}/items").json()
+        resp = self.session.get(self.url + f"api/libraries/{self.library}/items").json()
         podcast_ids: list[str] = [podcast["id"] for podcast in resp["results"]]
 
         items = []
         for podcast in podcast_ids:
-            resp = self.session.get(ABS_URL + f"api/items/{podcast}").json()
+            resp = self.session.get(self.url + f"api/items/{podcast}").json()
 
             # Skip backlogged podcasts.
             if "backlog" in resp["media"]["tags"]:
@@ -75,7 +84,7 @@ class Client:
 
             for episode in episodes:
                 resp = self.session.get(
-                    ABS_URL + f"api/items/{podcast}",
+                    self.url + f"api/items/{podcast}",
                     params={
                         "expanded": 1,
                         "include": "progress",
@@ -90,4 +99,6 @@ class Client:
 
                 items.append(Episode.from_json(episode))
 
-        return sorted(items, key=lambda i: i.publish_ts)
+        return sorted(items, key=lambda i: i.publish_ts)[
+            self._config["playlist"]["skip"] :
+        ]

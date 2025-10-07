@@ -17,20 +17,16 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-def process(client: Client, *, skip: int = 0) -> None:
-    items = client.items
-
+def process(client: Client) -> None:
     total_length = timedelta()
     oldest = datetime.now(timezone.utc)
-    for item in items[skip:]:
+    for item in client.items:
         oldest = min(oldest, datetime.fromtimestamp(item.publish_ts, timezone.utc))
-        total_length += timedelta(seconds=item.duration)
-
-    logger.info("Oldest episode is %s", oldest.date())
-    logger.info("Total backlog length is %s", total_length)
-
+        total_length += timedelta(seconds=int(item.duration))
     length = datetime.now(timezone.utc) - oldest
 
+    logger.info("Oldest episode is %s (%s days!)", oldest.date(), length.days)
+    logger.info("Total backlog length is %s", total_length)
     logger.info(f"Average {total_length / length.days} per day")
 
 

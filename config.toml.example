@@ -1,0 +1,9 @@
+[audiobookshelf]
+url = ""
+user = ""
+password = ""
+
+[playlist]
+name = "Up Next"
+skip = 0
+count = 10

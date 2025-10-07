@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from common import ABS_URL, Client, Episode
+from common import Client, Episode
 
 if TYPE_CHECKING:
     from typing import Self
@@ -64,14 +64,18 @@ class PlaylistItems:
 
 
 def update_playlist(client: Client, episodes: list[Episode]) -> None:
-    resp = client.session.get(ABS_URL + "api/playlists").json()
+    resp = client.session.get(client.url + "api/playlists").json()
 
     try:
-        playlist = next(p for p in resp["playlists"] if p["name"] == "Up Next")
+        playlist = next(
+            p
+            for p in resp["playlists"]
+            if p["name"] == client._config["playlist"]["name"]
+        )
     except StopIteration:
         logger.warning("Playlist not found, creating")
         resp = client.session.post(
-            ABS_URL + "api/playlists",
+            client.url + "api/playlists",
             data={
                 "libraryId": client.library,
                 "name": "Up Next",
@@ -99,7 +103,7 @@ def update_playlist(client: Client, episodes: list[Episode]) -> None:
     for item in net_new.items:
         logger.info("Adding %s", item.episode_name)
     resp = client.session.post(
-        ABS_URL + f"api/playlists/{playlist['id']}/batch/add",
+        client.url + f"api/playlists/{playlist['id']}/batch/add",
         data=json.dumps(payload),
         headers={"Content-Type": "application/json"},
     )
@@ -109,7 +113,7 @@ def update_playlist(client: Client, episodes: list[Episode]) -> None:
     for item in net_old.items:
         logger.info("Removing %s", item.episode_name)
     resp = client.session.post(
-        ABS_URL + f"api/playlists/{playlist['id']}/batch/remove",
+        client.url + f"api/playlists/{playlist['id']}/batch/remove",
         data=json.dumps(payload),
         headers={"Content-Type": "application/json"},
     )
@@ -118,7 +122,7 @@ def update_playlist(client: Client, episodes: list[Episode]) -> None:
 def main() -> None:
     c = Client()
     c.login()
-    items = c.items[:10]
+    items = c.items[: c._config["playlist"]["count"]]
     update_playlist(c, items)
 
 
