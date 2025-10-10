@@ -7,14 +7,10 @@
 # ///
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timedelta, timezone
 
 from common import Client
-
-
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+from logger import logger
 
 
 def process(client: Client) -> None:

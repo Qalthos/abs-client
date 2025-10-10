@@ -7,17 +7,14 @@
 # ///
 from __future__ import annotations
 import json
-import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from common import Client, Episode
+from logger import logger
 
 if TYPE_CHECKING:
     from typing import Self
-
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 
 @dataclass
