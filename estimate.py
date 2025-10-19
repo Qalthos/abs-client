@@ -16,14 +16,19 @@ from logger import logger
 def process(client: Client) -> None:
     total_length = timedelta()
     oldest = datetime.now(timezone.utc)
-    for item in client.items:
+    items = client.items
+    for item in items:
         oldest = min(oldest, datetime.fromtimestamp(item.publish_ts, timezone.utc))
         total_length += timedelta(seconds=int(item.duration))
     length = datetime.now(timezone.utc) - oldest
 
     logger.info("Oldest episode is %s (%s days!)", oldest.date(), length.days)
-    logger.info("Total backlog length is %s", total_length)
-    logger.info(f"Average {total_length / length.days} per day")
+    logger.info("Total backlog length is %s (%d episodes)", total_length, len(items))
+    logger.info(
+        "Average %s per day (%.2f episodes per day)",
+        total_length / length.days,
+        len(items) / length.days,
+    )
 
 
 def main() -> None:
