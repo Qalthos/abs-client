@@ -8,6 +8,8 @@ import requests
 import tomllib
 from pathlib import Path
 
+from logger import logger
+
 
 if TYPE_CHECKING:
     from typing import Self
@@ -41,6 +43,9 @@ class Episode:
     def __str__(self) -> str:
         return f"  {self.date}\n{self.podcast}\t{self.name}"
 
+    def __repr__(self) -> str:
+        return f"{self.podcast} - {self.name}"
+
 
 class Client:
     library: str
@@ -72,7 +77,7 @@ class Client:
         resp = self.session.get(self.url + f"api/libraries/{self.library}/items").json()
         podcast_ids: list[str] = [podcast["id"] for podcast in resp["results"]]
 
-        items = []
+        items: list[Episode] = []
         for podcast in podcast_ids:
             resp = self.session.get(self.url + f"api/items/{podcast}").json()
 
@@ -99,6 +104,9 @@ class Client:
 
                 items.append(Episode.from_json(episode))
 
-        return sorted(items, key=lambda i: i.publish_ts)[
-            self._config["playlist"]["skip"] :
-        ]
+        all_episodes = sorted(items, key=lambda i: i.publish_ts)
+        to_skip: int = self._config.get("playlist", {}).get("skip", 0)
+        for episode in all_episodes[:to_skip]:
+            logger.debug("Skipping %r", episode)
+
+        return all_episodes[to_skip:]
