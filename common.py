@@ -96,10 +96,10 @@ class Client:
                         "episode": episode["id"],
                     },
                 ).json()
-                if resp["userMediaProgress"] is None:
-                    items.append(Episode.from_json(episode))
-                    continue
-                if resp["userMediaProgress"]["isFinished"] is True:
+                if (
+                    resp["userMediaProgress"] is not None
+                    and resp["userMediaProgress"]["isFinished"] is True
+                ):
                     continue
 
                 items.append(Episode.from_json(episode))
