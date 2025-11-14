@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import time
 from typing import TYPE_CHECKING
 
 import requests
@@ -74,6 +75,7 @@ class Client:
 
     @property
     def items(self) -> list[Episode]:
+        start = time.monotonic()
         resp = self.session.get(self.url + f"api/libraries/{self.library}/items").json()
         podcast_ids: list[str] = [podcast["id"] for podcast in resp["results"]]
 
@@ -105,6 +107,9 @@ class Client:
                 items.append(Episode.from_json(episode))
 
         all_episodes = sorted(items, key=lambda i: i.publish_ts)
+        duration = time.monotonic() - start
+        logger.debug(f"Reading episodes took {duration:.2f} seconds")
+
         to_skip: int = self._config.get("playlist", {}).get("skip", 0)
         for episode in all_episodes[:to_skip]:
             logger.debug("Skipping %r", episode)
