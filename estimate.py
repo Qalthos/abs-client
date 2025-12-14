@@ -24,6 +24,16 @@ def process(client: Client) -> None:
 
     logger.info("Oldest episode is %s (%s days!)", oldest.date(), length.days)
     logger.info("Total backlog length is %s (%d episodes)", total_length, len(items))
+
+    # Switch to all episodes
+    total_length = timedelta()
+    oldest = datetime.now(timezone.utc)
+    items = client.all_episodes
+    for item in items:
+        oldest = min(oldest, datetime.fromtimestamp(item.publish_ts, timezone.utc))
+        total_length += timedelta(seconds=int(item.duration))
+    length = datetime.now(timezone.utc) - oldest
+
     logger.info(
         "Average %d minutes per day (%.2f episodes per day)",
         (total_length / length.days).total_seconds() // 60,
