@@ -58,6 +58,49 @@ class Episode:
         return f"{self.podcast} - {self.name}"
 
 
+@dataclass
+class PlaylistItem:
+    episode_id: str
+    library_id: str
+    episode_name: str
+
+    @classmethod
+    def from_json(cls, json) -> Self:
+        return cls(
+            episode_id=json["episodeId"],
+            library_id=json["libraryItemId"],
+            episode_name=json["episode"]["title"],
+        )
+
+    def to_json(self) -> dict[str, str]:
+        return {"episodeId": self.episode_id, "libraryItemId": self.library_id}
+
+    def __eq__(self, other: Self) -> bool:
+        return (
+            self.episode_id == other.episode_id and self.library_id == other.library_id
+        )
+
+
+@dataclass
+class PlaylistItems:
+    items: list[PlaylistItem]
+
+    @classmethod
+    def from_json(cls, json) -> PlaylistItems:
+        items = [PlaylistItem.from_json(item) for item in json["items"]]
+        return cls(items)
+
+    def to_json(self) -> dict[str, list[dict[str, str]]]:
+        return {"items": [item.to_json() for item in self.items]}
+
+    def __sub__(self, other: PlaylistItems) -> PlaylistItems:
+        items = list(self.items)
+        for item in other.items:
+            if item in items:
+                items.remove(item)
+        return self.__class__(items)
+
+
 class Client:
     library: str
 
@@ -93,6 +136,21 @@ class Client:
                     + f"api/podcasts/{episode.podcast_id}/episode/{episode.id}",
                     params={"hard": 1},
                 )
+
+    def update_playlist(
+        self,
+        playlist_id: str,
+        episodes: PlaylistItems,
+        action: Literal["add", "remove"],
+    ) -> None:
+        for item in episodes.items:
+            logger.info("%s %s", action, item.episode_name)
+
+        _resp = self.session.post(
+            self.url + f"api/playlists/{playlist_id}/batch/{action}",
+            data=json.dumps(episodes.to_json()),
+            headers={"Content-Type": "application/json"},
+        )
 
     @property
     def items(self) -> list[Episode]:
