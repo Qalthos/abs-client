@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from functools import cached_property
+from functools import cache, cached_property
+import json
 import time
 from typing import TYPE_CHECKING
 
@@ -14,7 +15,7 @@ from logger import logger
 
 
 if TYPE_CHECKING:
-    from typing import Self
+    from typing import Self, Literal
 
 
 @dataclass
@@ -44,6 +45,12 @@ class Episode:
     def date(self) -> str:
         return datetime.fromtimestamp(self.publish_ts).date().isoformat()
 
+    def __eq__(self, other) -> bool:
+        return self.id == other.id
+
+    def __hash__(self) -> int:
+        return hash(self.id)
+
     def __str__(self) -> str:
         return f"  {self.date}\n{self.podcast}\t{self.name}"
 
@@ -72,9 +79,13 @@ class Client:
 
         self.library = resp["userDefaultLibraryId"]
 
+    @property
+    def url(self) -> str:
+        return self._config["audiobookshelf"]["url"]
+
     def cleanup(self, older_than: timedelta = timedelta(days=30)) -> None:
         cutoff = (datetime.now() - older_than).timestamp()
-        for episode in self._all_episodes:
+        for episode in self.all_episodes:
             if episode.publish_ts < cutoff and self._is_finished(episode):
                 logger.info("Deleting %s", episode.name)
                 self.session.delete(
@@ -84,13 +95,9 @@ class Client:
                 )
 
     @property
-    def url(self) -> str:
-        return self._config["audiobookshelf"]["url"]
-
-    @property
     def items(self) -> list[Episode]:
         start = time.monotonic()
-        all_episodes = self._all_episodes
+        all_episodes = self.all_episodes
 
         unfinished = [
             episode for episode in all_episodes if not self._is_finished(episode)
@@ -106,19 +113,19 @@ class Client:
         return unfinished[to_skip:]
 
     @cached_property
-    def _all_episodes(self) -> list[Episode]:
+    def all_episodes(self) -> list[Episode]:
         resp = self.session.get(self.url + f"api/libraries/{self.library}/items").json()
         podcast_ids: list[str] = [podcast["id"] for podcast in resp["results"]]
 
         items: list[Episode] = []
         for podcast in podcast_ids:
             resp = self.session.get(self.url + f"api/items/{podcast}").json()
-            podcast_name = resp["media"]["metadata"]["title"]
 
             # Skip backlogged podcasts.
             if "backlog" in resp["media"]["tags"]:
                 continue
 
+            podcast_name = resp["media"]["metadata"]["title"]
             episodes = resp["media"]["episodes"]
 
             items.extend(
@@ -130,6 +137,7 @@ class Client:
 
         return sorted(items, key=lambda i: i.publish_ts)
 
+    @cache
     def _is_finished(self, episode: Episode) -> bool:
         resp = self.session.get(
             self.url + f"api/items/{episode.podcast_id}",
@@ -140,10 +148,11 @@ class Client:
             },
         )
         try:
-            resp = resp.json()
+            json = resp.json()
         except requests.exceptions.JSONDecodeError:
             logger.exception(resp.content)
+            return False
         return (
-            resp["userMediaProgress"] is not None
-            and resp["userMediaProgress"]["isFinished"] is True
+            json["userMediaProgress"] is not None
+            and json["userMediaProgress"]["isFinished"] is True
         )
