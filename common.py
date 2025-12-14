@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+from functools import cached_property
 import time
 from typing import TYPE_CHECKING
 
@@ -71,6 +72,17 @@ class Client:
 
         self.library = resp["userDefaultLibraryId"]
 
+    def cleanup(self, older_than: timedelta = timedelta(days=30)) -> None:
+        cutoff = (datetime.now() - older_than).timestamp()
+        for episode in self._all_episodes:
+            if episode.publish_ts < cutoff and self._is_finished(episode):
+                logger.info("Deleting %s", episode.name)
+                self.session.delete(
+                    self.url
+                    + f"api/podcasts/{episode.podcast_id}/episode/{episode.id}",
+                    params={"hard": 1},
+                )
+
     @property
     def url(self) -> str:
         return self._config["audiobookshelf"]["url"]
@@ -78,7 +90,7 @@ class Client:
     @property
     def items(self) -> list[Episode]:
         start = time.monotonic()
-        all_episodes = self._all_episodes()
+        all_episodes = self._all_episodes
 
         unfinished = [
             episode for episode in all_episodes if not self._is_finished(episode)
@@ -93,6 +105,7 @@ class Client:
 
         return unfinished[to_skip:]
 
+    @cached_property
     def _all_episodes(self) -> list[Episode]:
         resp = self.session.get(self.url + f"api/libraries/{self.library}/items").json()
         podcast_ids: list[str] = [podcast["id"] for podcast in resp["results"]]
