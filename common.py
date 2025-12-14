@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 class Episode:
     id: str
     library_id: str
+    podcast_id: str
 
     podcast: str
     name: str
@@ -27,11 +28,12 @@ class Episode:
     publish_ts: float
 
     @classmethod
-    def from_json(cls, json) -> Self:
+    def from_json(cls, json, podcast_id: str, podcast_name: str) -> Self:
         return cls(
             id=json["id"],
             library_id=json["libraryItemId"],
-            podcast=json["audioFile"]["metaTags"]["tagAlbum"],
+            podcast_id=podcast_id,
+            podcast=podcast_name,
             name=json["title"],
             duration=json["audioFile"]["duration"],
             publish_ts=json["publishedAt"] / 1000,
@@ -76,12 +78,29 @@ class Client:
     @property
     def items(self) -> list[Episode]:
         start = time.monotonic()
+        all_episodes = self._all_episodes()
+
+        unfinished = [
+            episode for episode in all_episodes if not self._is_finished(episode)
+        ]
+
+        duration = time.monotonic() - start
+        logger.debug(f"Reading episodes took {duration:.2f} seconds")
+
+        to_skip: int = self._config.get("playlist", {}).get("skip", 0)
+        for episode in unfinished[:to_skip]:
+            logger.debug("Skipping %r", episode)
+
+        return unfinished[to_skip:]
+
+    def _all_episodes(self) -> list[Episode]:
         resp = self.session.get(self.url + f"api/libraries/{self.library}/items").json()
         podcast_ids: list[str] = [podcast["id"] for podcast in resp["results"]]
 
         items: list[Episode] = []
         for podcast in podcast_ids:
             resp = self.session.get(self.url + f"api/items/{podcast}").json()
+            podcast_name = resp["media"]["metadata"]["title"]
 
             # Skip backlogged podcasts.
             if "backlog" in resp["media"]["tags"]:
@@ -89,29 +108,29 @@ class Client:
 
             episodes = resp["media"]["episodes"]
 
-            for episode in episodes:
-                resp = self.session.get(
-                    self.url + f"api/items/{podcast}",
-                    params={
-                        "expanded": 1,
-                        "include": "progress",
-                        "episode": episode["id"],
-                    },
-                ).json()
-                if (
-                    resp["userMediaProgress"] is not None
-                    and resp["userMediaProgress"]["isFinished"] is True
-                ):
-                    continue
+            items.extend(
+                Episode.from_json(
+                    episode, podcast_id=podcast, podcast_name=podcast_name
+                )
+                for episode in episodes
+            )
 
-                items.append(Episode.from_json(episode))
+        return sorted(items, key=lambda i: i.publish_ts)
 
-        all_episodes = sorted(items, key=lambda i: i.publish_ts)
-        duration = time.monotonic() - start
-        logger.debug(f"Reading episodes took {duration:.2f} seconds")
-
-        to_skip: int = self._config.get("playlist", {}).get("skip", 0)
-        for episode in all_episodes[:to_skip]:
-            logger.debug("Skipping %r", episode)
-
-        return all_episodes[to_skip:]
+    def _is_finished(self, episode: Episode) -> bool:
+        resp = self.session.get(
+            self.url + f"api/items/{episode.podcast_id}",
+            params={
+                "expanded": 1,
+                "include": "progress",
+                "episode": episode.id,
+            },
+        )
+        try:
+            resp = resp.json()
+        except requests.exceptions.JSONDecodeError:
+            logger.exception(resp.content)
+        return (
+            resp["userMediaProgress"] is not None
+            and resp["userMediaProgress"]["isFinished"] is True
+        )
