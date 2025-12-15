@@ -6,13 +6,9 @@
 # ]
 # ///
 from __future__ import annotations
-from typing import TYPE_CHECKING
 
 from common import Client, Episode, PlaylistItem, PlaylistItems
 from logger import logger
-
-if TYPE_CHECKING:
-    from typing import Self
 
 
 def update_playlist(client: Client, episodes: list[Episode]) -> None:

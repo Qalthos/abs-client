@@ -75,7 +75,10 @@ class PlaylistItem:
     def to_json(self) -> dict[str, str]:
         return {"episodeId": self.episode_id, "libraryItemId": self.library_id}
 
-    def __eq__(self, other: Self) -> bool:
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+
         return (
             self.episode_id == other.episode_id and self.library_id == other.library_id
         )
