@@ -8,31 +8,16 @@
 from __future__ import annotations
 
 from common import Client, Episode, PlaylistItem, PlaylistItems
-from logger import logger
 
 
-def update_playlist(client: Client, episodes: list[Episode]) -> None:
-    resp = client.session.get(client.url + "api/playlists").json()
+def update_playlist(client: Client) -> None:
+    client.cleanup()
 
-    try:
-        playlist = next(
-            p
-            for p in resp["playlists"]
-            if p["name"] == client._config["playlist"]["name"]
-        )
-    except StopIteration:
-        logger.warning("Playlist not found, creating")
-        resp = client.session.post(
-            client.url + "api/playlists",
-            data={
-                "libraryId": client.library,
-                "name": "Up Next",
-            },
-        ).json()
-        playlist = resp
+    playlist = client.get_playlist()
 
     existing_items = PlaylistItems.from_json(playlist)
 
+    episodes = client.items[: client._config["playlist"]["count"]]
     new_items = PlaylistItems(
         items=[
             PlaylistItem(
@@ -51,8 +36,7 @@ def update_playlist(client: Client, episodes: list[Episode]) -> None:
 def main() -> None:
     c = Client()
     c.login()
-    items = c.items[: c._config["playlist"]["count"]]
-    update_playlist(c, items)
+    update_playlist(c)
 
 
 if __name__ == "__main__":

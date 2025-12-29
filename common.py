@@ -20,15 +20,19 @@ if TYPE_CHECKING:
 class Client:
     library: str
 
+    _config: Config
+    _url: str = ""
+
     def __init__(self) -> None:
         self.session = requests.Session()
 
         with Path("config.toml").open("rb") as config:
-            self._config = tomllib.load(config)
+            self._config: Config = tomllib.load(config)
+        self._url = self._config["audiobookshelf"]["url"]
 
     def login(self) -> None:
         resp = self.session.post(
-            f"{self.url}login",
+            f"{self._url}login",
             {
                 "username": self._config["audiobookshelf"]["user"],
                 "password": self._config["audiobookshelf"]["password"],
@@ -38,20 +42,36 @@ class Client:
 
         self.library = resp["userDefaultLibraryId"]
 
-    @property
-    def url(self) -> str:
-        return self._config["audiobookshelf"]["url"]
-
     def cleanup(self, older_than: timedelta = timedelta(days=30)) -> None:
         cutoff = (datetime.now() - older_than).timestamp()
         for episode in self.all_episodes:
             if episode.publish_ts < cutoff and self._is_finished(episode):
                 logger.info("Deleting %s", episode.name)
                 self.session.delete(
-                    self.url
-                    + f"api/podcasts/{episode.podcast_id}/episode/{episode.id}",
+                    f"{self._url}api/podcasts/{episode.podcast_id}/episode/{episode.id}",
                     params={"hard": 1},
                 )
+
+    def get_playlist(self):
+        resp = self.session.get(f"{self._url}api/playlists").json()
+
+        try:
+            playlist = next(
+                p
+                for p in resp["playlists"]
+                if p["name"] == self._config["playlist"]["name"]
+            )
+        except StopIteration:
+            logger.warning("Playlist not found, creating")
+            resp = self.session.post(
+                f"{self._url}api/playlists",
+                data={
+                    "libraryId": self.library,
+                    "name": "Up Next",
+                },
+            ).json()
+            playlist = resp
+        return playlist
 
     def update_playlist(
         self,
@@ -63,7 +83,7 @@ class Client:
             logger.info("%s %s", action, item.episode_name)
 
         _resp = self.session.post(
-            self.url + f"api/playlists/{playlist_id}/batch/{action}",
+            f"{self._url}api/playlists/{playlist_id}/batch/{action}",
             data=json.dumps(episodes.to_json()),
             headers={"Content-Type": "application/json"},
         )
@@ -88,12 +108,12 @@ class Client:
 
     @cached_property
     def all_episodes(self) -> list[Episode]:
-        resp = self.session.get(self.url + f"api/libraries/{self.library}/items").json()
+        resp = self.session.get(f"{self._url}api/libraries/{self.library}/items").json()
         podcast_ids: list[str] = [podcast["id"] for podcast in resp["results"]]
 
         items: list[Episode] = []
         for podcast in podcast_ids:
-            resp = self.session.get(self.url + f"api/items/{podcast}").json()
+            resp = self.session.get(f"{self._url}api/items/{podcast}").json()
 
             # Skip backlogged podcasts.
             if "backlog" in resp["media"]["tags"]:
@@ -139,7 +159,7 @@ class Client:
     @cache
     def _episode_details(self, episode: Episode):
         return self.session.get(
-            f"{self.url}api/items/{episode.podcast_id}",
+            f"{self._url}api/items/{episode.podcast_id}",
             params={
                 "expanded": 1,
                 "include": "progress",
