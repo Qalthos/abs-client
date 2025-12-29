@@ -1,107 +1,20 @@
 from __future__ import annotations
 
+import json
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import cache, cached_property
-import json
-import time
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict
 
 import requests
 import tomllib
-from pathlib import Path
 
 from logger import logger
 
-
 if TYPE_CHECKING:
-    from typing import Self, Literal
-
-
-@dataclass
-class Episode:
-    id: str
-    library_id: str
-    podcast_id: str
-
-    podcast: str
-    name: str
-    duration: float
-    publish_ts: float
-
-    @classmethod
-    def from_json(cls, json, podcast_id: str, podcast_name: str) -> Self:
-        return cls(
-            id=json["id"],
-            library_id=json["libraryItemId"],
-            podcast_id=podcast_id,
-            podcast=podcast_name,
-            name=json["title"],
-            duration=json["audioFile"]["duration"],
-            publish_ts=json["publishedAt"] / 1000,
-        )
-
-    @property
-    def date(self) -> str:
-        return datetime.fromtimestamp(self.publish_ts).date().isoformat()
-
-    def __eq__(self, other) -> bool:
-        return self.id == other.id
-
-    def __hash__(self) -> int:
-        return hash(self.id)
-
-    def __str__(self) -> str:
-        return f"  {self.date}\n{self.podcast}\t{self.name}"
-
-    def __repr__(self) -> str:
-        return f"{self.podcast} - {self.name}"
-
-
-@dataclass
-class PlaylistItem:
-    episode_id: str
-    library_id: str
-    episode_name: str
-
-    @classmethod
-    def from_json(cls, json) -> Self:
-        return cls(
-            episode_id=json["episodeId"],
-            library_id=json["libraryItemId"],
-            episode_name=json["episode"]["title"],
-        )
-
-    def to_json(self) -> dict[str, str]:
-        return {"episodeId": self.episode_id, "libraryItemId": self.library_id}
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, self.__class__):
-            return NotImplemented
-
-        return (
-            self.episode_id == other.episode_id and self.library_id == other.library_id
-        )
-
-
-@dataclass
-class PlaylistItems:
-    items: list[PlaylistItem]
-
-    @classmethod
-    def from_json(cls, json) -> PlaylistItems:
-        items = [PlaylistItem.from_json(item) for item in json["items"]]
-        return cls(items)
-
-    def to_json(self) -> dict[str, list[dict[str, str]]]:
-        return {"items": [item.to_json() for item in self.items]}
-
-    def __sub__(self, other: PlaylistItems) -> PlaylistItems:
-        items = list(self.items)
-        for item in other.items:
-            if item in items:
-                items.remove(item)
-        return self.__class__(items)
+    from typing import Literal, Self
 
 
 class Client:
@@ -233,8 +146,100 @@ class Client:
                 "episode": episode.id,
             },
         ).json()
+
+
+# Types
+class PlaylistConfig(TypedDict):
+    name: str
+    skip: int
+    count: int
+
+
+class Config(TypedDict):
+    audiobookshelf: dict[str, str]
+    playlist: PlaylistConfig
+
+
+@dataclass
+class Episode:
+    id: str
+    library_id: str
+    podcast_id: str
+
+    podcast: str
+    name: str
+    duration: float
+    publish_ts: float
+
+    @classmethod
+    def from_json(cls, json, podcast_id: str, podcast_name: str) -> Self:
+        return cls(
+            id=json["id"],
+            library_id=json["libraryItemId"],
+            podcast_id=podcast_id,
+            podcast=podcast_name,
+            name=json["title"],
+            duration=json["audioFile"]["duration"],
+            publish_ts=json["publishedAt"] / 1000,
         )
+
+    @property
+    def date(self) -> str:
+        return datetime.fromtimestamp(self.publish_ts).date().isoformat()
+
+    def __eq__(self, other) -> bool:
+        return self.id == other.id
+
+    def __hash__(self) -> int:
+        return hash(self.id)
+
+    def __str__(self) -> str:
+        return f"  {self.date}\n{self.podcast}\t{self.name}"
+
+    def __repr__(self) -> str:
+        return f"{self.podcast} - {self.name}"
+
+
+@dataclass
+class PlaylistItem:
+    episode_id: str
+    library_id: str
+    episode_name: str
+
+    @classmethod
+    def from_json(cls, json) -> Self:
+        return cls(
+            episode_id=json["episodeId"],
+            library_id=json["libraryItemId"],
+            episode_name=json["episode"]["title"],
+        )
+
+    def to_json(self) -> dict[str, str]:
+        return {"episodeId": self.episode_id, "libraryItemId": self.library_id}
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PlaylistItem):
+            return NotImplemented
         return (
-            json["userMediaProgress"] is not None
-            and json["userMediaProgress"]["isFinished"] is True
+            self.episode_id == other.episode_id and self.library_id == other.library_id
         )
+
+
+@dataclass
+class PlaylistItems:
+    items: list[PlaylistItem]
+
+    @classmethod
+    def from_json(cls, json) -> PlaylistItems:
+        items = [PlaylistItem.from_json(item) for item in json["items"]]
+        return cls(items)
+
+    def to_json(self) -> dict[str, list[dict[str, str]]]:
+        return {"items": [item.to_json() for item in self.items]}
+
+    def __sub__(self, other: PlaylistItems) -> PlaylistItems:
+        items = list(self.items)
+        for item in other.items:
+            if item in items:
+                items.remove(item)
+        return self.__class__(items)
