@@ -198,21 +198,42 @@ class Client:
 
         return sorted(items, key=lambda i: i.publish_ts)
 
-    @cache
     def _is_finished(self, episode: Episode) -> bool:
-        resp = self.session.get(
-            self.url + f"api/items/{episode.podcast_id}",
+        try:
+            json = self._episode_details(episode)
+        except requests.exceptions.JSONDecodeError as exc:
+            logger.exception(exc)
+            return False
+
+        return (
+            json["userMediaProgress"] is not None
+            and json["userMediaProgress"]["isFinished"] is True
+        )
+
+    def remaining(self, episode: Episode) -> float:
+        try:
+            json = self._episode_details(episode)
+        except requests.exceptions.JSONDecodeError as exc:
+            logger.exception(exc)
+            return 0
+
+        if json["userMediaProgress"] is None:
+            return duration
+        if json["userMediaProgress"]["isFinished"] is True:
+            return 0
+        return episode.duration - json["userMediaProgress"]["currentTime"]
+
+    @cache
+    def _episode_details(self, episode: Episode):
+        return self.session.get(
+            f"{self.url}api/items/{episode.podcast_id}",
             params={
                 "expanded": 1,
                 "include": "progress",
                 "episode": episode.id,
             },
+        ).json()
         )
-        try:
-            json = resp.json()
-        except requests.exceptions.JSONDecodeError:
-            logger.exception(resp.content)
-            return False
         return (
             json["userMediaProgress"] is not None
             and json["userMediaProgress"]["isFinished"] is True

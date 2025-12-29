@@ -19,7 +19,7 @@ def process(client: Client) -> None:
     items = client.items
     for item in items:
         oldest = min(oldest, datetime.fromtimestamp(item.publish_ts, timezone.utc))
-        total_length += timedelta(seconds=int(item.duration))
+        total_length += timedelta(seconds=int(client.remaining(item)))
     length = datetime.now(timezone.utc) - oldest
 
     logger.info("Oldest episode is %s (%s days!)", oldest.date(), length.days)
